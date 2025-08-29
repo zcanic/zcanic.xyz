@@ -1,0 +1,44 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+  # api_key: "YOUR_SECRET_API_KEY" # Uncomment and set if you want to use API key auth
+  audio_storage_path: "./audio_storage" # Relative to where the app runs or absolute
+  # cors_origins:
+  #   - "http://localhost:3000"
+  #   - "https://yourdomain.com"
+
+logging:
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  save_path: "./logs" # Relative to where the app runs or absolute
+  max_file_size_mb: 10
+  backup_count: 5
+
+ai_translator:
+  # Base URL for the AI translation service (e.g., OpenAI compatible API)
+  api_base: "https://api.siliconflow.cn/v1"
+  # API Key for the AI translation service
+  api_key: "YOUR_TRANSLATOR_API_KEY_HERE"
+  # Model to use for translation
+  model: "deepseek-ai/DeepSeek-R1"
+  # Default system prompt (No longer used, kept for reference during transition if needed)
+  # system_prompt: "Translate the following Chinese text to Japanese, focusing on a natural, conversational tone suitable for a cute, slightly ditzy female character. Prioritize fluency and character voice over literal translation. If the input contains specific stylistic elements (like ending sentences with '喵'), try to adapt them naturally into Japanese spoken language, perhaps using 'にゃ' or similar cute vocalizations if appropriate. Remove any bracketed non-verbal cues, like (smiles)."
+  # Temperature for translation model (0.0 to 2.0)
+  temperature: 0.3
+  # Maximum tokens for the translated output
+  max_tokens: 300
+  # Timeout for API requests in seconds
+  timeout_seconds: 300
+  # Maximum number of retries for API requests
+  max_retries: 2
+
+voicevox:
+  engine_url: "http://localhost:50021" # Default Voicevox Engine URL
+  default_speaker_id: 46 # Example speaker ID (Zundamon Normal)
+  timeout_seconds: 30
+  # Audio generation parameters (optional, Voicevox defaults will be used if not set)
+  # audio_parameters:
+  #   speed_scale: 1.0
+  #   pitch_scale: 0.0
+  #   intonation_scale: 1.0
+  #   volume_scale: 1.0
+  #   output_format: "wav"

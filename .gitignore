@@ -1,0 +1,53 @@
+# Dependencies
+/node_modules
+/server/node_modules
+
+# Environment variables
+/server/.env
+.env*.local
+
+# Production build
+/dist
+
+# Logs
+logs/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+VENV/
+# Specific to voice_app
+voice_app/config/config_local.yaml
+voice_app/audio_storage/
+voice_app/logs/ 

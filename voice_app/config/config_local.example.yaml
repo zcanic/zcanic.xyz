@@ -1,0 +1,14 @@
+# Local configuration overrides.
+# Copy this file to config_local.yaml and modify as needed.
+# Settings here will override default_config.yaml.
+
+# server:
+#   api_key: "YOUR_ACTUAL_API_KEY_FOR_LOCAL_DEV"
+#   port: 8001 # Example: run on a different port locally
+
+ai_translator:
+  api_key: "YOUR_ACTUAL_OPENAI_API_KEY" # REQUIRED if not set via environment variable
+
+# voicevox:
+#   engine_url: "http://192.168.1.100:50021" # Example: if Voicevox runs on a different machine in your LAN
+#   default_speaker_id: 1 # Example: use a different default speaker
