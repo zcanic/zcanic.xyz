@@ -78,6 +78,16 @@ const Navbar = () => {
               {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
+            {/* 进入议会按钮 */}
+            <a
+              href="https://council-new.vercel.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+            >
+              进入议会
+            </a>
+
             {/* User menu/login button */}
             {isAuthenticated ? (
               <div className="relative" ref={userMenuRef}>
@@ -98,16 +108,15 @@ const Navbar = () => {
                 <AnimatePresence>
                   {isUserMenuOpen && (
                     <div className="absolute right-0 mt-2 w-48 rounded-xl overflow-hidden shadow-lg bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl border border-white/20 dark:border-slate-700/30">
-                      <NavLink
-                        to="/profile"
-                        className={({ isActive }) => `
-                          block px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 
-                          ${isActive ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' : ''}
-                        `}
+                      <a
+                        href="https://github.com/zcanic"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
                         onClick={() => setIsUserMenuOpen(false)}
                       >
-                        个人资料
-                      </NavLink>
+                        作者资料
+                      </a>
               <button
                         onClick={() => {
                           logout();
@@ -172,19 +181,15 @@ const Navbar = () => {
               ))}
               {isAuthenticated && (
                 <>
-                  <NavLink
-                    to="/profile"
-                    className={({ isActive }) =>
-                      `px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                        isActive
-                          ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/80 dark:bg-indigo-900/20'
-                          : 'text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
-                      }`
-                    }
+                  <a
+                    href="https://github.com/zcanic"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-xl text-sm font-medium transition-colors text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-50/80 dark:hover:bg-slate-800/50"
                     onClick={() => setIsMenuOpen(false)}
                   >
-                    个人资料
-                  </NavLink>
+                    作者资料
+                  </a>
                   <button
                     onClick={() => {
                       logout();
