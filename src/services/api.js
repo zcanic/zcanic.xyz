@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast'; // 导入 toast
+import { defaultRetry, chatRetry, batchQueryRetry } from '../utils/retryMechanism'; // 导入重试机制
 
 // 定义一个空的 clearAuthData 函数，因为我们不再需要清除 localStorage 了
 const clearAuthData = () => {
@@ -7,14 +8,18 @@ const clearAuthData = () => {
   // 不需要做任何事
 };
 
-// 创建 axios 实例
+// 创建 axios 实例 - 优化超时和重试配置
 const apiClient = axios.create({
   baseURL: process.env.REACT_APP_API_URL || '/api', // 从环境变量读取或使用默认值
-  timeout: 10000, // 请求超时时间 (10 秒)
+  timeout: 30000, // 聊天请求超时时间 (30秒) - 对标OpenAI响应时间
   withCredentials: true, // <--- 关键！允许跨域请求携带 Cookie
   headers: {
     'Content-Type': 'application/json',
-  }
+  },
+  // 增强连接配置
+  maxRedirects: 3,
+  maxContentLength: 50 * 1024 * 1024, // 50MB
+  maxBodyLength: 50 * 1024 * 1024 // 50MB
 });
 
 // --- 请求拦截器 --- 
@@ -344,22 +349,34 @@ export const createChatSession = (data) => callApi(apiClient.post, 'createChatSe
 // 获取会话的消息历史
 export const getChatSessionMessages = (sessionId) => callApi(apiClient.get, 'getChatSessionMessages', `/chat/sessions/${sessionId}/messages`);
 
-// 发送消息到会话
-export const sendChatMessage = (sessionId, message, settings = {}) => callApi(apiClient.post, 'sendChatMessage', `/chat/sessions/${sessionId}/messages`, { 
-  message,
-  ...settings, // Include model, temperature, maxTokens, systemPrompt 
-});
+// 发送消息到会话 - 关键API使用聊天专用重试机制
+export const sendChatMessage = async (sessionId, message, settings = {}) => {
+  return await chatRetry.executeWithRetry(async () => {
+    return callApi(apiClient.post, 'sendChatMessage', `/chat/sessions/${sessionId}/messages`, { 
+      message,
+      ...settings, // Include model, temperature, maxTokens, systemPrompt 
+    });
+  }, '发送聊天消息');
+};
 
 // 删除聊天会话
 export const deleteChatSession = (sessionId) => callApi(apiClient.delete, 'deleteChatSession', `/chat/sessions/${sessionId}`);
 
-// --- 任务状态相关 API ---
+// --- 任务状态相关 API (重试优化) ---
 
-// 获取单个任务状态
-export const getTaskStatus = (taskId) => callApi(apiClient.get, 'getTaskStatus', `/tasks/${taskId}`);
+// 获取单个任务状态 - 使用默认重试
+export const getTaskStatus = async (taskId) => {
+  return await defaultRetry.executeWithRetry(async () => {
+    return callApi(apiClient.get, 'getTaskStatus', `/tasks/${taskId}`);
+  }, '获取任务状态');
+};
 
-// 批量获取任务状态
-export const batchGetTasksStatus = (taskIds) => callApi(apiClient.post, 'batchGetTasksStatus', '/tasks/batch', { taskIds });
+// 批量获取任务状态 - 使用批量查询专用重试机制
+export const batchGetTasksStatus = async (taskIds) => {
+  return await batchQueryRetry.executeWithRetry(async () => {
+    return callApi(apiClient.post, 'batchGetTasksStatus', '/tasks/batch', { taskIds });
+  }, '批量查询任务状态');
+};
 
 // 语音服务API
 export const voice = {

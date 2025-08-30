@@ -9,6 +9,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { BlogProvider } from './context/BlogContext';
 import { ChatProvider } from './context/ChatContext';
 import ErrorBoundary from './components/ErrorBoundary';
+// 初始化性能监控系统
+import './utils/performanceMonitor';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

@@ -83,7 +83,7 @@ const Navbar = () => {
               href="https://council-new.vercel.app/"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+              className="px-4 py-2 bg-cyan-100 hover:bg-cyan-200 dark:bg-cyan-100 dark:hover:bg-cyan-200 text-slate-800 dark:text-slate-800 rounded-xl text-sm font-medium transition-colors shadow-sm"
             >
               进入议会
             </a>
@@ -179,6 +179,18 @@ const Navbar = () => {
                   {item.label}
                 </NavLink>
               ))}
+              
+              {/* 移动端进入议会按钮 */}
+              <a
+                href="https://council-new.vercel.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-cyan-100 hover:bg-cyan-200 text-slate-800 mx-4 my-1 text-center"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                进入议会
+              </a>
+              
               {isAuthenticated && (
                 <>
                   <a

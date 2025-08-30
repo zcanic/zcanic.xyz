@@ -97,12 +97,15 @@ exports.getSessionMessages = async (req, res) => {
       return res.status(404).json({ success: false, message: '会话不存在' });
     }
     
-    // 获取消息，包括待处理消息
+    // 获取消息，使用消息序号确保正确排序
     const [messages] = await pool.query(
-      `SELECT id, role, content, status, created_at, task_id, voice_url, translated_text 
+      `SELECT id, role, content, status, created_at, task_id, voice_url, translated_text, message_order
        FROM chat_messages 
        WHERE session_id = ? 
-       ORDER BY created_at ASC`,
+       ORDER BY 
+         COALESCE(message_order, 0) ASC, 
+         created_at ASC, 
+         CASE WHEN role = 'user' THEN 1 ELSE 2 END ASC`,
       [sessionId]
     );
     
@@ -116,7 +119,8 @@ exports.getSessionMessages = async (req, res) => {
         createdAt: msg.created_at,
         taskId: msg.task_id,
         voiceUrl: msg.voice_url || null,
-        translatedText: msg.translated_text || null
+        translatedText: msg.translated_text || null,
+        messageOrder: msg.message_order || 0
       }))
     });
   } catch (error) {
@@ -170,14 +174,21 @@ exports.sendMessage = async (req, res) => {
       messageLength: message.length
     });
     
-    // 1. 保存用户消息
+    // 1. 获取当前会话的下一个消息序号
+    const [maxSeqResult] = await pool.query(
+      'SELECT COALESCE(MAX(message_order), 0) as maxOrder FROM chat_messages WHERE session_id = ?',
+      [sessionId]
+    );
+    const nextOrder = (maxSeqResult[0]?.maxOrder || 0) + 1;
+    
+    // 2. 保存用户消息（带明确的序号）
     const userMessageId = uuidv4();
     await pool.query(
-      'INSERT INTO chat_messages (id, session_id, role, content) VALUES (?, ?, ?, ?)',
-      [userMessageId, sessionId, 'user', message]
+      'INSERT INTO chat_messages (id, session_id, role, content, message_order) VALUES (?, ?, ?, ?, ?)',
+      [userMessageId, sessionId, 'user', message, nextOrder]
     );
     
-    // 2. 创建助手消息占位符
+    // 3. 创建助手消息占位符（序号+1确保在用户消息之后）
     const assistantMessageId = uuidv4();
     
     // 3. 创建异步任务
@@ -205,10 +216,10 @@ exports.sendMessage = async (req, res) => {
       logger.info(`[chatController] 任务(${taskId})没有附加数据需要保存。`);
     }
     
-    // 5. 保存助手消息占位符
+    // 5. 保存助手消息占位符（序号+1确保在用户消息之后）
     await pool.query(
-      'INSERT INTO chat_messages (id, session_id, role, content, status, task_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [assistantMessageId, sessionId, 'assistant', '正在思考...', 'pending', taskId]
+      'INSERT INTO chat_messages (id, session_id, role, content, status, task_id, message_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [assistantMessageId, sessionId, 'assistant', '正在思考...', 'pending', taskId, nextOrder + 1]
     );
     
     // 6. 更新会话的最后活动时间

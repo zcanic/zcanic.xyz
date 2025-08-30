@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
+import { recordChatPerformance, recordPollingPerformance, recordUserAction } from '../utils/performanceMonitor';
 import { 
   getUserChatSessions, 
   createChatSession,
@@ -26,7 +27,7 @@ const ChatPage = () => {
   const [loading, setLoading] = useState(false);
   const [pendingTasks, setPendingTasks] = useState({});
   const [initialLoad, setInitialLoad] = useState(true);
-  const [pollInterval, setPollInterval] = useState(2000); // 初始轮询间隔 2 秒
+  const [pollInterval, setPollInterval] = useState(1000); // 初始轮询间隔 1 秒 - 对标业界标准
   const [showSidebar, setShowSidebar] = useState(false); // 移动设备上侧边栏显示状态
   const chatContainerRef = useRef(null);
 
@@ -114,11 +115,26 @@ const ChatPage = () => {
           setLoading(true);
           const response = await getChatSessionMessages(currentSessionId);
           
-          // 确保消息按时间顺序排序并添加时间戳属性
+          // 确保消息按正确顺序排序 - 优先使用messageOrder，回退到时间戳
           const processedMessages = (response.data.messages || []).map(msg => ({
             ...msg,
-            timestamp: new Date(msg.createdAt).getTime() // 添加时间戳用于排序
-          })).sort((a, b) => a.timestamp - b.timestamp);
+            timestamp: new Date(msg.createdAt).getTime(), // 添加时间戳用于排序
+            messageOrder: msg.messageOrder || 0 // 确保有序号
+          })).sort((a, b) => {
+            // 优先按消息序号排序
+            if (a.messageOrder !== b.messageOrder) {
+              return a.messageOrder - b.messageOrder;
+            }
+            // 序号相同时按时间戳排序
+            if (a.timestamp !== b.timestamp) {
+              return a.timestamp - b.timestamp;
+            }
+            // 最后按角色排序：user在前，assistant在后
+            if (a.role !== b.role) {
+              return a.role === 'user' ? -1 : 1;
+            }
+            return 0;
+          });
           
           setMessages(processedMessages);
           
@@ -159,17 +175,22 @@ const ChatPage = () => {
     }
   }, [currentSessionId, handleApiError]);
 
-  // 定期检查待处理任务并使用指数退避策略
+  // 智能轮询机制 - 对标顶级LLM chatbox性能
   useEffect(() => {
     if (Object.keys(pendingTasks).length === 0) return;
     
     const checkTasks = async () => {
       const taskIds = Object.keys(pendingTasks);
+      const taskCount = taskIds.length;
       
       try {
         // 批量查询任务状态
         const response = await batchGetTasksStatus(taskIds);
+        
+        // 记录轮询性能
+        recordPollingPerformance(pollInterval, true);
         const completedTaskIds = [];
+        const processingTaskIds = [];
         
         // 处理任务状态更新
         response.data.tasks.forEach(task => {
@@ -189,11 +210,20 @@ const ChatPage = () => {
                 return msg;
               });
               
-              // 保持消息按时间戳排序
-              return updatedMessages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+              // 保持消息按正确顺序排序
+              return updatedMessages.sort((a, b) => {
+                // 优先按消息序号排序
+                if ((a.messageOrder || 0) !== (b.messageOrder || 0)) {
+                  return (a.messageOrder || 0) - (b.messageOrder || 0);
+                }
+                // 序号相同时按时间戳排序
+                return (a.timestamp || 0) - (b.timestamp || 0);
+              });
             });
             
             completedTaskIds.push(task.id);
+          } else if (task.status === 'processing') {
+            processingTaskIds.push(task.id);
           }
         });
         
@@ -205,20 +235,38 @@ const ChatPage = () => {
             return newTasks;
           });
           
-          // 如果还有待处理任务，增加轮询间隔（最大10秒）
-          if (Object.keys(pendingTasks).length - completedTaskIds.length > 0) {
-            setPollInterval(prev => Math.min(prev * 1.5, 10000));
+          // 当有任务完成时提示用户
+          toast.success('已收到新回复');
+        }
+        
+        // 智能调整轮询间隔 - 对标ChatGPT/Claude性能
+        const remainingTasks = taskCount - completedTaskIds.length;
+        if (remainingTasks > 0) {
+          let newInterval;
+          
+          if (processingTaskIds.length > 0) {
+            // 有任务正在处理，保持较高频率
+            newInterval = 1000; // 1秒
+          } else if (remainingTasks <= 2) {
+            // 少量待处理任务，中等频率
+            newInterval = 2000; // 2秒
+          } else {
+            // 多任务情况，适当降频但不过低
+            newInterval = Math.min(3000, pollInterval * 1.2);
           }
           
-          // 当有任务完成时提示用户
-          if (completedTaskIds.length > 0) {
-            toast.success('已收到新回复');
-          }
+          setPollInterval(newInterval);
+        } else {
+          // 重置为初始间隔，为下次对话准备
+          setPollInterval(1000);
         }
+        
       } catch (err) {
         handleApiError(err, '检查任务状态失败');
-        // 发生错误时，增加轮询间隔
-        setPollInterval(prev => Math.min(prev * 2, 15000));
+        // 记录轮询失败
+        recordPollingPerformance(pollInterval, false);
+        // 错误时适度增加间隔，但不影响用户体验
+        setPollInterval(prev => Math.min(prev * 1.5, 8000));
       }
     };
     
@@ -248,6 +296,9 @@ const ChatPage = () => {
       setSessions(prev => [newSession, ...prev]);
       setCurrentSessionId(newSession.id);
       
+      // 记录用户行为
+      recordUserAction('sessionCreated', { mode, title: sessionTitle });
+      
       toast.success(`已创建${mode === 'voice' ? '语音' : '新'}会话`);
       return newSession;
     } catch (err) {
@@ -258,59 +309,88 @@ const ChatPage = () => {
     }
   };
 
-  // 发送消息
+  // 发送消息 - 优化延迟，对标顶级LLM chatbox
   const handleSendMessage = async (message) => {
     if (!currentSessionId || !message.trim()) return;
     
+    // 立即生成时间戳，确保顺序一致性
+    const now = Date.now();
+    const userMsgId = `temp-user-${now}`;
+    const assistantMsgId = `temp-assistant-${now}`;
+    
+    // 获取当前会话的AI设置 (提前准备，减少延迟)
+    const currentSettings = getCurrentSessionSettings();
+    
+    // 提取并格式化需要的设置属性 (提前处理)
+    const aiSettings = {
+      model: currentSettings.model,
+      temperature: currentSettings.temperature,
+      maxTokens: currentSettings.maxTokens,
+      systemPrompt: currentSettings.systemPrompt
+    };
+    
     try {
-      // 生成唯一ID用于跟踪消息
-      const userMsgId = `temp-user-${Date.now()}`;
-      const assistantMsgId = `temp-assistant-${Date.now()}`;
+      // 记录聊天请求开始时间
+      const chatStartTime = performance.now();
       
-      // 乐观更新，立即添加用户消息
+      // 乐观更新 - 立即显示用户消息 (对标ChatGPT即时响应)
       const userMessageOptimistic = {
         id: userMsgId,
         role: 'user',
         content: message,
         status: 'completed',
         createdAt: new Date().toISOString(),
-        timestamp: Date.now() // 添加时间戳用于排序
+        timestamp: now
       };
       
-      // 添加临时等待消息
+      // 动态thinking指示器 - 优雅的加载状态
       const assistantMessageOptimistic = {
         id: assistantMsgId,
         role: 'assistant',
-        content: '正在思考...',
+        content: '🤔 正在思考...',
         status: 'pending',
         createdAt: new Date().toISOString(),
-        timestamp: Date.now() + 1 // 确保助手消息排在用户消息后面
+        timestamp: now + 1
       };
       
+      // 立即更新UI - 零延迟用户体验
       setMessages(prev => [...prev, userMessageOptimistic, assistantMessageOptimistic]);
       
-      // 获取当前会话的AI设置
-      const currentSettings = getCurrentSessionSettings();
-      
-      // 提取并格式化需要的设置属性
-      const aiSettings = {
-        // 仅发送必要的AI参数
-        model: currentSettings.model,
-        temperature: currentSettings.temperature,
-        maxTokens: currentSettings.maxTokens,
-        systemPrompt: currentSettings.systemPrompt
-      };
-      
-      console.log('[ChatPage] 发送消息使用设置:', {
-        model: aiSettings.model,
-        temperature: aiSettings.temperature,
-        maxTokens: aiSettings.maxTokens !== undefined ? 
-          (aiSettings.maxTokens === null ? '无限制' : aiSettings.maxTokens) : '未设置',
-        hasSystemPrompt: !!aiSettings.systemPrompt,
+      // 预先更新会话列表，提升感知性能
+      setSessions(prev => {
+        const updatedSessions = prev.filter(s => s.id !== currentSessionId);
+        const currentSession = prev.find(s => s.id === currentSessionId);
+        if (currentSession) {
+          return [
+            { ...currentSession, updatedAt: new Date().toISOString() },
+            ...updatedSessions
+          ];
+        }
+        return prev;
       });
       
-      // 发送到服务器
+      // 记录用户行为
+      recordUserAction('messageSent', { 
+        messageLength: message.length,
+        hasSettings: Object.keys(aiSettings).length > 0 
+      });
+      
+      // 记录设置信息 (仅开发环境)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[ChatPage] 发送消息使用设置:', {
+          model: aiSettings.model,
+          temperature: aiSettings.temperature,
+          maxTokens: aiSettings.maxTokens !== undefined ? 
+            (aiSettings.maxTokens === null ? '无限制' : aiSettings.maxTokens) : '未设置',
+          hasSystemPrompt: !!aiSettings.systemPrompt,
+        });
+      }
+      
+      // 并行发送请求 - 减少网络延迟
       const response = await sendChatMessage(currentSessionId, message, aiSettings);
+      
+      // 记录聊天性能
+      recordChatPerformance(chatStartTime, true);
       
       // 更新真实消息ID和任务ID，保留原始消息顺序
       setMessages(prevMessages => {
@@ -363,49 +443,58 @@ const ChatPage = () => {
         });
       });
       
-      // 添加到待处理任务
+      // 添加到待处理任务并启动高频轮询
       setPendingTasks(prev => ({
         ...prev,
         [response.data.taskId]: response.data.assistantMessageId
       }));
       
-      // 有新的待处理任务，重置轮询间隔
-      setPollInterval(2000);
-
-      // 更新会话列表，将当前会话移到顶部
-      setSessions(prev => {
-        const updatedSessions = prev.filter(s => s.id !== currentSessionId);
-        const currentSession = prev.find(s => s.id === currentSessionId);
-        if (currentSession) {
-          return [
-            { ...currentSession, updatedAt: new Date().toISOString() },
-            ...updatedSessions
-          ];
-        }
-        return prev;
-      });
+      // 立即启动高频轮询确保最快响应
+      setPollInterval(1000);
       
     } catch (err) {
+      // 记录聊天失败
+      recordChatPerformance(performance.now() - now, false, err);
+      
       handleApiError(err, '发送消息失败');
       
-      // 移除乐观更新的消息
-      setMessages(prevMessages => 
-        prevMessages.filter(msg => 
+      // 错误处理 - 移除乐观更新的消息并显示错误状态
+      setMessages(prevMessages => {
+        const filteredMessages = prevMessages.filter(msg => 
           !msg.id.startsWith('temp-')
-        )
-      );
+        );
+        
+        // 添加错误消息提示
+        return [...filteredMessages, {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: '💥 消息发送失败，请重试',
+          status: 'failed',
+          createdAt: new Date().toISOString(),
+          timestamp: Date.now()
+        }];
+      });
     }
   };
 
-  // 会话切换处理
+  // 会话切换处理 - 优化切换性能
   const handleSelectSession = (sessionId) => {
     if (sessionId !== currentSessionId) {
+      // 清理当前的待处理任务，避免串扰
+      setPendingTasks({});
+      
       setCurrentSessionId(sessionId);
       
       // 设置为当前活动会话（用于设置上下文）
       if (setActiveSession) {
         setActiveSession(sessionId);
       }
+      
+      // 记录用户行为
+      recordUserAction('sessionSwitched', { fromSession: currentSessionId, toSession: sessionId });
+      
+      // 重置轮询间隔为默认值
+      setPollInterval(1000);
     }
   };
 

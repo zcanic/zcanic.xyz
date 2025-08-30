@@ -241,6 +241,40 @@ const initializeDatabase = async (dbPool) => {
       }
     });
 
+    // 检查并添加message_order字段用于确保消息顺序
+    await dbPool.query(`
+      SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_messages' AND COLUMN_NAME = 'message_order'
+    `).then(async ([columns]) => {
+      if (columns.length === 0) {
+        // message_order列不存在，添加它
+        await dbPool.query(`
+          ALTER TABLE chat_messages 
+          ADD COLUMN message_order INT DEFAULT 0 
+          AFTER task_id
+        `);
+        logger.info("添加了 'message_order' 列到 'chat_messages' 表喵~");
+        
+        // 为现有数据设置正确的message_order
+        await dbPool.query(`
+          SET @row_number = 0;
+          UPDATE chat_messages 
+          SET message_order = (@row_number:=@row_number+1)
+          WHERE session_id IS NOT NULL
+          ORDER BY session_id, created_at ASC, 
+                   CASE WHEN role = 'user' THEN 1 ELSE 2 END ASC;
+        `);
+        logger.info("为现有聊天消息设置了正确的顺序编号喵~");
+        
+        // 添加索引优化查询性能
+        await dbPool.query(`
+          CREATE INDEX idx_chat_messages_session_order 
+          ON chat_messages(session_id, message_order)
+        `);
+        logger.info("添加了消息顺序索引喵~");
+      }
+    });
+
     logger.info('所有必需的数据表检查/创建完成喵~');
 
   } catch (error) {

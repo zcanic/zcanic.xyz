@@ -45,7 +45,7 @@ exports.getTaskStatus = async (req, res) => {
   }
 };
 
-// 批量获取任务状态
+// 批量获取任务状态 - 优化批量处理性能
 exports.batchGetTasksStatus = async (req, res) => {
   try {
     const { taskIds } = req.body;
@@ -61,25 +61,62 @@ exports.batchGetTasksStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: '请提供有效的任务ID列表' });
     }
     
-    // 获取任务状态
+    // 性能优化：限制批量查询数量，防止过大查询
+    const MAX_BATCH_SIZE = 50;
+    if (taskIds.length > MAX_BATCH_SIZE) {
+      logger.warn(`[taskController] 批量查询数量过大: ${taskIds.length}, 用户: ${userId}`);
+      return res.status(400).json({ 
+        success: false, 
+        message: `批量查询数量不能超过${MAX_BATCH_SIZE}个` 
+      });
+    }
+    
+    // 记录查询性能指标
+    const startTime = process.hrtime.bigint();
+    
+    // 获取任务状态 - 已在getTasksStatus中优化SQL查询
     const tasks = await getTasksStatus(pool, taskIds);
     
-    // 过滤出属于当前用户的任务
+    // 安全过滤：只返回属于当前用户的任务
     const userTasks = tasks.filter(task => task.user_id === userId);
+    
+    // 记录查询耗时
+    const endTime = process.hrtime.bigint();
+    const duration = Number(endTime - startTime) / 1000000; // 转换为毫秒
+    
+    // 性能监控：记录慢查询
+    if (duration > 100) { // 超过100ms记录警告
+      logger.warn(`[taskController] 批量查询耗时过长: ${duration.toFixed(2)}ms, 任务数: ${taskIds.length}, 用户: ${userId}`);
+    }
+    
+    // 优化响应格式，减少数据传输量
+    const optimizedTasks = userTasks.map(task => ({
+      id: task.id,
+      status: task.status,
+      relatedId: task.related_id,
+      // 只在有结果时才传输result和error，减少响应体积
+      ...(task.result && { result: task.result }),
+      ...(task.error && { error: task.error })
+    }));
     
     res.status(200).json({
       success: true,
-      tasks: userTasks.map(task => ({
-        id: task.id,
-        status: task.status,
-        relatedId: task.related_id,
-        result: task.result,
-        error: task.error
-      }))
+      tasks: optimizedTasks,
+      // 添加性能指标供前端优化参考
+      ...(process.env.NODE_ENV === 'development' && { 
+        _debug: { 
+          queryTime: `${duration.toFixed(2)}ms`,
+          requestedCount: taskIds.length,
+          returnedCount: optimizedTasks.length 
+        }
+      })
     });
     
   } catch (error) {
-    logger.error(`[taskController] 批量获取任务状态失败: ${error.message}`);
+    logger.error(`[taskController] 批量获取任务状态失败: ${error.message}`, {
+      userId: req.user?.id,
+      taskCount: req.body?.taskIds?.length || 0
+    });
     res.status(500).json({ success: false, message: '批量获取任务状态失败' });
   }
 }; 
